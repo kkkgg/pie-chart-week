@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>曜日ようび</title>
+    <style>
+        body {
+            display: grid;
+            place-items: center;
+            min-height: 95vh;
+            background-color: #333;
+            font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+            color: white;
+        }
+
+        .pie-container {
+            width: 400px;
+            height: 400px;
+            /* スマートフォンなど幅が狭い場合は画面幅に合わせる */
+            max-width: 90vw;
+            max-height: 90vw;
+        }
+
+        .pie-chart {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            position: relative;
+            
+            /* * 背景のグラデーションはJavaScriptで動的に設定します 
+             * (例: background: conic-gradient(red 0% 14.28%, blue 14.28% 28.56%, ...);)
+             */
+            background: #555; /* JS読み込み前の色 */
+
+            border: 6px solid #f0f0f0;
+            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5),
+                        inset 0 0 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .day-label {
+            position: absolute;
+            /* JSで (top: 50%, left: 50%) からの相対位置を計算します */
+            top: 50%;
+            left: 50%;
+
+            /* * CSS変数 --x と --y をJSから設定します。
+             * translate(-50%, -50%) で、要素自身の中心を (x, y) 座標に合わせます。
+             */
+            transform: translate(var(--x, 0px), var(--y, 0px)) translate(-50%, -50%);
+            
+            /* テキストのスタイル */
+            font-size: 2.1rem;
+            font-weight: bold;
+            padding: 8px 14px;
+            border-radius: 8px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+            
+            /* アニメーション */
+            transition: transform 0.3s ease-out, 
+                        box-shadow 0.3s ease-out, 
+                        border 0.3s ease-out;
+        }
+
+        /* --- 今日の曜日を目立たせるスタイル --- */
+        .day-label.today {
+            /* * transformを上書きし、scale(1.25) を追加します
+             * これにより、元の位置を保ったまま拡大されます
+             */
+            transform: translate(var(--x, 0px), var(--y, 0px)) translate(-50%, -50%) scale(1.25);
+            
+            z-index: 10;
+            border: 2px solid rgba(255, 255, 255, 0.9);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.7);
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>曜日ようび</h1>
+    <div class="pie-container">
+        <div class="pie-chart" id="pie-chart"></div>
+    </div>
+
+    <script>
+        // DOMが読み込まれたら実行
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- 1. 定義 ---
+            
+            // 曜日の定義（月曜始まり）とテーマカラー
+            const days = [
+                { name: '🌛月🏫  ', color: '#f0e68c', textColor: '#333' }, // 月 (Moon)🌙
+                { name: '🔥火🏫', color: '#ff6347', textColor: '#fff' }, // 火 (Fire)
+                { name: '💧水🏫', color: '#4682b4', textColor: '#fff' }, // 水 (Water)
+                { name: '🌳木🏫', color: '#2e8b57', textColor: '#fff' }, // 木 (Wood)
+                { name: '🪙金🏫🐶', color: '#ffd700', textColor: '#333' }, // 金 (Gold)💰
+                { name: '⛰️土', color: '#8b4513', textColor: '#fff' }, // 土 (Earth)
+                { name: '🌞日', color: '#ffa500', textColor: '#fff' }  // 日 (Sun)☀️
+            ];
+
+            const pieChart = document.getElementById('pie-chart');
+            const segmentAngle = 360 / 7; // 1セグメントあたりの角度 (約51.43度)
+
+            // 現在の曜日インデックスを保持（切り替わり検知用）
+            let currentDayIndex = -1;
+
+            // --- 2. 描画関数 ---
+            function updateChart() {
+                const now = new Date();
+                const jsDay = now.getDay(); // 0=日曜, 1=月曜, ..., 6=土曜
+                
+                // JSの曜日インデックス(0=日)を、days配列(0=月)のインデックスに変換
+                const todayIndex = (jsDay === 0) ? 6 : jsDay - 1;
+
+                // 日付が変わっていない場合は何もしない (パフォーマンスのため)
+                if (todayIndex === currentDayIndex) {
+                    return;
+                }
+                currentDayIndex = todayIndex;
+                console.log(`日付が更新されました: ${days[todayIndex].name}曜日`);
+
+                // 以前のラベルをクリア
+                pieChart.innerHTML = '';
+                
+                // --- 2a. 円グラフの背景色 (conic-gradient) を設定 ---
+                let gradientString = 'conic-gradient(';
+                let currentAngle = 0;
+                
+                days.forEach(day => {
+                    const nextAngle = currentAngle + segmentAngle;
+                    // 例: "red 0deg 51.43deg, "
+                    gradientString += `${day.color} ${currentAngle}deg ${nextAngle}deg, `;
+                    currentAngle = nextAngle;
+                });
+                
+                // 最後の ", " を削除して閉じ括弧を追加
+                gradientString = gradientString.slice(0, -2) + ')';
+                pieChart.style.background = gradientString;
+
+                
+                // --- 2b. ラベルを配置 ---
+                
+                // 円の中心からラベルまでの距離（半径の65%の位置）
+                const radius = pieChart.offsetWidth / 2 * 0.65;
+
+                days.forEach((day, index) => {
+                    const label = document.createElement('div');
+                    label.classList.add('day-label');
+                    label.textContent = day.name;
+                    label.style.color = day.textColor;
+
+                    // ラベルを配置する角度を計算
+                    // セグメントの真ん中に配置 (index * 角度 + 角度/2)
+                    const cssAngleDeg = (index * segmentAngle) + (segmentAngle / 2);
+                    
+                    // 三角関数 (sin, cos) のための角度に変換 (0度が右方向になる)
+                    // CSSの角度(0度が上)から90度引く
+                    const mathAngleRad = (cssAngleDeg - 90) * (Math.PI / 180);
+
+                    // X, Y座標を計算
+                    const x = Math.cos(mathAngleRad) * radius;
+                    const y = Math.sin(mathAngleRad) * radius;
+                    
+                    // CSS変数にセット
+                    label.style.setProperty('--x', `${x}px`);
+                    label.style.setProperty('--y', `${y}px`);
+
+                    // 今日の曜日に .today クラスを付与
+                    if (index === todayIndex) {
+                        label.classList.add('today');
+                    }
+                    
+                    pieChart.appendChild(label);
+                });
+            }
+
+            // --- 3. 実行 ---
+            
+            // 最初に一度実行
+            updateChart();
+            
+            // 1分ごとに曜日が変わっていないかチェック
+            // リアルタイム性を求めないなら、もっと間隔を長くしてもOK
+            setInterval(updateChart, 60000); 
+
+            // ウィンドウサイズが変わった時も再描画（レスポンシブ対応）
+            window.addEventListener('resize', updateChart);
+        });
+    </script>
+
+</body>
+</html>
