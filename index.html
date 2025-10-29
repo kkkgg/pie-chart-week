@@ -6,189 +6,209 @@
     <title>曜日ようび</title>
     <style>
         body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue',
+                sans-serif;
             display: grid;
             place-items: center;
             min-height: 95vh;
-            background-color: #333;
-            font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
-            color: white;
+            background-color: #f0f2f5;
+            color: #333;
         }
 
-        .pie-container {
-            width: 400px;
-            height: 400px;
-            /* スマートフォンなど幅が狭い場合は画面幅に合わせる */
-            max-width: 90vw;
-            max-height: 90vw;
+        h1 {
+            font-weight: 300;
+            color: #555;
         }
 
-        .pie-chart {
+        .chart-container {
+            width: 90vw;
+            max-width: 400px;
+            position: relative;
+        }
+
+        #pie-chart {
             width: 100%;
             height: 100%;
-            border-radius: 50%;
-            position: relative;
-            
-            /* * 背景のグラデーションはJavaScriptで動的に設定します 
-             * (例: background: conic-gradient(red 0% 14.28%, blue 14.28% 28.56%, ...);)
-             */
-            background: #555; /* JS読み込み前の色 */
-
-            border: 6px solid #f0f0f0;
-            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5),
-                        inset 0 0 10px rgba(0, 0, 0, 0.3);
+            /* 今日のピースが拡大したときに見切れないように */
+            overflow: visible; 
         }
 
-        .day-label {
-            position: absolute;
-            /* JSで (top: 50%, left: 50%) からの相対位置を計算します */
-            top: 50%;
-            left: 50%;
+        /* 各曜日のグループ */
+        .day-group {
+            cursor: pointer;
+            transition: transform 0.3s ease, filter 0.3s ease;
+        }
 
-            /* * CSS変数 --x と --y をJSから設定します。
-             * translate(-50%, -50%) で、要素自身の中心を (x, y) 座標に合わせます。
-             */
-            transform: translate(var(--x, 0px), var(--y, 0px)) translate(-50%, -50%);
-            
-            /* テキストのスタイル */
-            font-size: 2.1rem;
+        /* 曜日のピース（扇形） */
+        .day-slice {
+            stroke: rgba(255, 255, 255, 0.5); /* ピース間の境界線 */
+            stroke-width: 0.5;
+        }
+
+        /* ホバー時 */
+        .day-group:not(.today):hover {
+            transform: scale(1.02);
+            filter: brightness(1.1);
+        }
+
+        /* 曜日のテキスト */
+        .day-text {
+            font-size: 8px;
             font-weight: bold;
-            padding: 8px 14px;
-            border-radius: 8px;
-            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
-            
-            /* アニメーション */
-            transition: transform 0.3s ease-out, 
-                        box-shadow 0.3s ease-out, 
-                        border 0.3s ease-out;
+            fill: rgba(0, 0, 0, 0.7);
+            text-anchor: middle; /* 水平中央揃え */
+            dominant-baseline: middle; /* 垂直中央揃え */
+            pointer-events: none; /* テキストがクリックイベントを邪魔しないように */
         }
 
-        /* --- 今日の曜日を目立たせるスタイル --- */
-        .day-label.today {
-            /* * transformを上書きし、scale(1.25) を追加します
-             * これにより、元の位置を保ったまま拡大されます
-             */
-            transform: translate(var(--x, 0px), var(--y, 0px)) translate(-50%, -50%) scale(1.25);
-            
+        /* --- 今日の曜日のハイライト --- */
+        .day-group.today {
+            /* 他のピースより手前に表示 */
+            transform: scale(1.08);
             z-index: 10;
-            border: 2px solid rgba(255, 255, 255, 0.9);
-            box-shadow: 0 0 20px rgba(255, 255, 255, 0.7);
         }
 
+        .day-group.today .day-slice {
+            /* 影をつけて目立たせる */
+            filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+            /* 枠線を太くする */
+            stroke: #ffffff;
+            stroke-width: 1.5;
+        }
+
+        .day-group.today .day-text {
+            fill: #000;
+            font-size: 9px;
+        }
     </style>
 </head>
 <body>
-
     <h1>曜日ようび</h1>
-    <div class="pie-container">
-        <div class="pie-chart" id="pie-chart"></div>
+
+    <div class="chart-container">
+        <svg id="pie-chart" viewBox="0 0 100 100"></svg>
     </div>
 
     <script>
-        // DOMが読み込まれたら実行
         document.addEventListener('DOMContentLoaded', () => {
-
-            // --- 1. 定義 ---
+            const svgNS = 'http://www.w3.org/2000/svg';
+            const pie = document.getElementById('pie-chart');
+            const R = 48; // 半径 (ViewBox 100 の中心 50 に対して)
+            const CX = 50;
+            const CY = 50;
+            const sliceAngle = 360 / 7;
             
-            // 曜日の定義（月曜始まり）とテーマカラー
+            // 日曜日を真上に配置するために開始角度を調整 (-90度が真上)
+            const startAngle = -90 - sliceAngle / 2;
+
+            // 曜日データ (JavaScriptの getDay() の順序: 0=日, 1=月, ...)
             const days = [
-                { name: '🌛月🏫  ', color: '#f0e68c', textColor: '#333' }, // 月 (Moon)🌙
-                { name: '🔥火🏫', color: '#ff6347', textColor: '#fff' }, // 火 (Fire)
-                { name: '💧水🏫', color: '#4682b4', textColor: '#fff' }, // 水 (Water)
-                { name: '🌳木🏫', color: '#2e8b57', textColor: '#fff' }, // 木 (Wood)
-                { name: '💰金🏫🐶', color: '#ffd700', textColor: '#333' }, // 金 (Gold)d)🪙
-                { name: '⛰️土', color: '#8b4513', textColor: '#fff' }, // 土 (Earth)
-                { name: '🌞日', color: '#ffa500', textColor: '#fff' }  // 日 (Sun)☀️
+                { name: '🌞日', color: '#FF9800', reading: 'にちようび' }, // 0: 太陽 (オレンジ)
+                { name: '🌛月🏫', color: '#FFEB3B', reading: 'げつようび' }, // 1: 月 (黄)
+                { name: '🔥火🏫', color: '#F44336', reading: 'かようび' },   // 2: 火 (赤)
+                { name: '💧水🏫', color: '#2196F3', reading: 'すいようび' }, // 3: 水 (青)
+                { name: '🌳木🏫', color: '#4CAF50', reading: 'もくようび' }, // 4: 木 (緑)
+                { name: '💰金🏫🐶', color: '#FFC107', reading: 'きんようび' }, // 5: 金 (ゴールド)
+                { name: '⛰️土', color: '#795548', reading: 'どようび' }    // 6: 土 (茶)
             ];
 
-            const pieChart = document.getElementById('pie-chart');
-            const segmentAngle = 360 / 7; // 1セグメントあたりの角度 (約51.43度)
+            // 角度をラジアンに変換するヘルパー関数
+            const degToRad = (deg) => deg * (Math.PI / 180);
 
-            // 現在の曜日インデックスを保持（切り替わり検知用）
-            let currentDayIndex = -1;
+            // 座標を計算するヘルパー関数
+            const getCoords = (angle) => {
+                const rad = degToRad(angle);
+                return {
+                    x: CX + R * Math.cos(rad),
+                    y: CY + R * Math.sin(rad),
+                };
+            };
 
-            // --- 2. 描画関数 ---
-            function updateChart() {
-                const now = new Date();
-                const jsDay = now.getDay(); // 0=日曜, 1=月曜, ..., 6=土曜
-                
-                // JSの曜日インデックス(0=日)を、days配列(0=月)のインデックスに変換
-                const todayIndex = (jsDay === 0) ? 6 : jsDay - 1;
+            // 1. 各曜日のピース（SVG要素）を生成
+            days.forEach((day, index) => {
+                const angle1 = startAngle + sliceAngle * index;
+                const angle2 = startAngle + sliceAngle * (index + 1);
 
-                // 日付が変わっていない場合は何もしない (パフォーマンスのため)
-                if (todayIndex === currentDayIndex) {
+                const p1 = getCoords(angle1);
+                const p2 = getCoords(angle2);
+
+                // SVGのパスデータ (M 中心 L 開始点 A 円弧 Z 閉じる)
+                // A ${R},${R} 0 0,1 ${p2.x},${p2.y}
+                // (R,R: 半径, 0: 回転, 0: large-arc-flag, 1: sweep-flag)
+                const d = `M ${CX},${CY} L ${p1.x},${p1.y} A ${R},${R} 0 0,1 ${p2.x},${p2.y} Z`;
+
+                const path = document.createElementNS(svgNS, 'path');
+                path.setAttribute('d', d);
+                path.setAttribute('fill', day.color);
+                path.classList.add('day-slice');
+
+                // テキストの位置（各ピースの中央）
+                const textAngle = angle1 + sliceAngle / 2;
+                const textR = R * 0.7; // テキストを中心から70%の位置に
+                const textRad = degToRad(textAngle);
+                const tx = CX + textR * Math.cos(textRad);
+                const ty = CY + textR * Math.sin(textRad);
+
+                const text = document.createElementNS(svgNS, 'text');
+                text.setAttribute('x', tx);
+                text.setAttribute('y', ty);
+                text.textContent = day.name;
+                text.classList.add('day-text');
+
+                // グループ化 (クリックイベントとスタイリングのため)
+                const group = document.createElementNS(svgNS, 'g');
+                group.setAttribute('id', `day-${index}`);
+                group.dataset.reading = day.reading; // 音声再生用のデータを保持
+                group.classList.add('day-group');
+
+                group.appendChild(path);
+                group.appendChild(text);
+
+                // 2. 音声再生のクリックイベントを追加
+                group.addEventListener('click', () => {
+                    playSpeech(day.reading);
+                });
+
+                pie.appendChild(group);
+            });
+
+            // 3. 今日の曜日をハイライトする関数
+            const updateHighlight = () => {
+                const todayIndex = new Date().getDay(); // 0=日, 1=月, ...
+
+                // すべてのハイライトを一旦解除
+                document.querySelectorAll('.day-group.today').forEach((el) => {
+                    el.classList.remove('today');
+                });
+
+                // 今日の曜日に 'today' クラスを追加
+                const todayElement = document.getElementById(`day-${todayIndex}`);
+                if (todayElement) {
+                    todayElement.classList.add('today');
+                }
+            };
+
+            // 4. 音声再生関数 (Web Speech API)
+            const playSpeech = (text) => {
+                // ブラウザが音声合成に対応しているかチェック
+                if (!window.speechSynthesis) {
+                    alert('お使いのブラウザは音声合成に対応していません。');
                     return;
                 }
-                currentDayIndex = todayIndex;
-                console.log(`日付が更新されました: ${days[todayIndex].name}曜日`);
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'ja-JP'; // 日本語に設定
+                utterance.rate = 1.0; // 読み上げ速度
+                speechSynthesis.speak(utterance);
+            };
 
-                // 以前のラベルをクリア
-                pieChart.innerHTML = '';
-                
-                // --- 2a. 円グラフの背景色 (conic-gradient) を設定 ---
-                let gradientString = 'conic-gradient(';
-                let currentAngle = 0;
-                
-                days.forEach(day => {
-                    const nextAngle = currentAngle + segmentAngle;
-                    // 例: "red 0deg 51.43deg, "
-                    gradientString += `${day.color} ${currentAngle}deg ${nextAngle}deg, `;
-                    currentAngle = nextAngle;
-                });
-                
-                // 最後の ", " を削除して閉じ括弧を追加
-                gradientString = gradientString.slice(0, -2) + ')';
-                pieChart.style.background = gradientString;
+            // 5. リアルタイム更新処理
+            // ページ読み込み時に初回実行
+            updateHighlight();
 
-                
-                // --- 2b. ラベルを配置 ---
-                
-                // 円の中心からラベルまでの距離（半径の65%の位置）
-                const radius = pieChart.offsetWidth / 2 * 0.65;
-
-                days.forEach((day, index) => {
-                    const label = document.createElement('div');
-                    label.classList.add('day-label');
-                    label.textContent = day.name;
-                    label.style.color = day.textColor;
-
-                    // ラベルを配置する角度を計算
-                    // セグメントの真ん中に配置 (index * 角度 + 角度/2)
-                    const cssAngleDeg = (index * segmentAngle) + (segmentAngle / 2);
-                    
-                    // 三角関数 (sin, cos) のための角度に変換 (0度が右方向になる)
-                    // CSSの角度(0度が上)から90度引く
-                    const mathAngleRad = (cssAngleDeg - 90) * (Math.PI / 180);
-
-                    // X, Y座標を計算
-                    const x = Math.cos(mathAngleRad) * radius;
-                    const y = Math.sin(mathAngleRad) * radius;
-                    
-                    // CSS変数にセット
-                    label.style.setProperty('--x', `${x}px`);
-                    label.style.setProperty('--y', `${y}px`);
-
-                    // 今日の曜日に .today クラスを付与
-                    if (index === todayIndex) {
-                        label.classList.add('today');
-                    }
-                    
-                    pieChart.appendChild(label);
-                });
-            }
-
-            // --- 3. 実行 ---
-            
-            // 最初に一度実行
-            updateChart();
-            
-            // 1分ごとに曜日が変わっていないかチェック
-            // リアルタイム性を求めないなら、もっと間隔を長くしてもOK
-            setInterval(updateChart, 60000); 
-
-            // ウィンドウサイズが変わった時も再描画（レスポンシブ対応）
-            window.addEventListener('resize', updateChart);
+            // その後、1分ごとに日付が変わっていないかチェック
+            setInterval(updateHighlight, 60000); 
         });
     </script>
-
 </body>
 </html>
